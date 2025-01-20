@@ -71,7 +71,7 @@ ARG GID="991"
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
-	ffmpeg tini curl libjemalloc-dev libjemalloc2 \
+	ffmpeg tini curl libjemalloc-dev libjemalloc2 redis-server \
 	&& ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so \
 	&& groupadd -g "${GID}" misskey \
 	&& useradd -l -u "${UID}" -g "${GID}" -m -d /misskey misskey \
@@ -99,9 +99,16 @@ COPY --chown=misskey:misskey --from=native-builder /misskey/packages/misskey-bub
 COPY --chown=misskey:misskey --from=native-builder /misskey/packages/backend/built ./packages/backend/built
 COPY --chown=misskey:misskey --from=native-builder /misskey/fluent-emojis /misskey/fluent-emojis
 COPY --chown=misskey:misskey . ./
+RUN mv ./.config/docker_example.yml ./.config/default.yml
+RUN echo '#!/bin/bash' > /misskey/start.sh \
+    && echo 'set -euo pipefail' >> /misskey/start.sh \
+    && echo 'redis-server --port 6379 &' >> /misskey/start.sh \
+    && echo 'sleep 2' >> /misskey/start.sh \
+    && echo 'pnpm run migrateandstart' >> /misskey/start.sh \
+    && chmod +x /misskey/start.sh
 
 ENV LD_PRELOAD=/usr/local/lib/libjemalloc.so
 ENV NODE_ENV=production
 HEALTHCHECK --interval=5s --retries=20 CMD ["/bin/bash", "/misskey/healthcheck.sh"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["pnpm", "run", "migrateandstart"]
+CMD ["/bin/bash", "-c", "/misskey/start.sh"]

@@ -3,6 +3,7 @@
 .travis
 .vscode
 .config
+!.config/docker_example.yml
 Dockerfile
 build/
 built/
