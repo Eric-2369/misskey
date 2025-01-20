@@ -131,7 +131,14 @@ export type Config = {
 		user: string;
 		pass: string;
 		disableCache?: boolean;
-		extra?: { [x: string]: string };
+		extra?: {
+			[x: string]: string | false | {
+				rejectUnauthorized: boolean;
+				ca?: string | undefined;
+				key?: string | undefined;
+				cert?: string | undefined;
+			}
+		};
 	};
 	dbReplications: boolean | undefined;
 	dbSlaves: {
@@ -249,16 +256,26 @@ export function loadConfig(): Config {
 
 	const config = yaml.load(fs.readFileSync(path, 'utf-8')) as Source;
 
-	const url = tryCreateUrl(config.url ?? process.env.MISSKEY_URL ?? '');
+	const url = tryCreateUrl(process.env.MISSKEY_URL ?? config.url ?? '');
 	const version = meta.version;
 	const host = url.host;
 	const hostname = url.hostname;
 	const scheme = url.protocol.replace(/:$/, '');
 	const wsScheme = scheme.replace('http', 'ws');
 
-	const dbDb = config.db.db ?? process.env.DATABASE_DB ?? '';
-	const dbUser = config.db.user ?? process.env.DATABASE_USER ?? '';
-	const dbPass = config.db.pass ?? process.env.DATABASE_PASSWORD ?? '';
+	const dbHost = process.env.DATABASE_HOST ?? config.db.host;
+	const dbPort = process.env.DATABASE_PORT ? parseInt(process.env.DATABASE_PORT, 10) : config.db.port;
+	const dbDb = process.env.DATABASE_DB ?? config.db.db ?? '';
+	const dbUser = process.env.DATABASE_USER ?? config.db.user ?? '';
+	const dbPass = process.env.DATABASE_PASS ?? config.db.pass ?? '';
+	const dbSsl = process.env.DATABASE_SSL
+		? {
+			rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false',
+			...(process.env.DATABASE_SSL_CA_BASE64 && { ca: Buffer.from(process.env.DATABASE_SSL_CA_BASE64, 'base64').toString() }),
+			...(process.env.DATABASE_SSL_KEY_BASE64 && { key: Buffer.from(process.env.DATABASE_SSL_KEY_BASE64, 'base64').toString() }),
+			...(process.env.DATABASE_SSL_CERT_BASE64 && { cert: Buffer.from(process.env.DATABASE_SSL_CERT_BASE64, 'base64').toString() }),
+		}
+		: config.db.extra?.ssl ?? false;
 
 	const externalMediaProxy = config.mediaProxy ?
 		config.mediaProxy.endsWith('/') ? config.mediaProxy.substring(0, config.mediaProxy.length - 1) : config.mediaProxy
@@ -283,7 +300,7 @@ export function loadConfig(): Config {
 		apiUrl: `${scheme}://${host}/api`,
 		authUrl: `${scheme}://${host}/auth`,
 		driveUrl: `${scheme}://${host}/files`,
-		db: { ...config.db, db: dbDb, user: dbUser, pass: dbPass },
+		db: { ...config.db, host: dbHost, port: dbPort, db: dbDb, user: dbUser, pass: dbPass, extra: { ...config.db.extra, ssl: dbSsl } },
 		dbReplications: config.dbReplications,
 		dbSlaves: config.dbSlaves,
 		fulltextSearch: config.fulltextSearch,
