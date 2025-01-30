@@ -131,7 +131,7 @@ fulltextSearch:
   # - meilisearch
   #   Use Meilisearch.
   #   You need to install Meilisearch and configure.
-  provider: sqlLike
+  provider: sqlPgroonga
 
 # For Meilisearch settings.
 # If you select "meilisearch" for "fulltextSearch.provider", it must be set.
