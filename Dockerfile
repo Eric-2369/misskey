@@ -10,7 +10,7 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean \
 	; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache \
 	&& apt-get update \
 	&& apt-get install -yqq --no-install-recommends \
-	build-essential
+	build-essential ca-certificates curl
 
 WORKDIR /misskey
 
@@ -37,7 +37,11 @@ RUN pnpm i --frozen-lockfile --aggregate-output
 
 COPY --link . ./
 
-RUN git submodule update --init
+RUN if [ ! -d fluent-emojis/dist ]; then \
+		mkdir -p fluent-emojis; \
+		curl -fsSL --retry 3 "https://github.com/misskey-dev/emojis/archive/cae981eb4c5189ea9ea3230e83b876a5068df7d1.tar.gz" \
+			| tar -xz --strip-components=1 -C fluent-emojis; \
+	fi
 RUN pnpm build
 RUN rm -rf .git/
 
