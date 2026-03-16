@@ -39,7 +39,7 @@ type Source = {
 		user?: string;
 		pass?: string;
 		disableCache?: boolean;
-		extra?: { [x: string]: string };
+		extra?: { [x: string]: string | boolean };
 	};
 	dbReplications?: boolean;
 	dbSlaves?: {
@@ -132,7 +132,7 @@ export type Config = {
 		user: string;
 		pass: string;
 		disableCache?: boolean;
-		extra?: { [x: string]: string };
+		extra?: { [x: string]: string | boolean };
 	};
 	dbReplications: boolean | undefined;
 	dbSlaves: {
@@ -260,15 +260,19 @@ export function loadConfig(): Config {
 	const config = JSON.parse(fs.readFileSync(compiledConfigFilePath, 'utf-8')) as Source;
 
 	const url = tryCreateUrl(config.url ?? process.env.MISSKEY_URL ?? '');
+	const databaseUrl = process.env.DATABASE_URL;
+	const parsedDatabaseUrl = databaseUrl ? parseDatabaseUrl(databaseUrl) : null;
 	const version = meta.version;
 	const host = url.host;
 	const hostname = url.hostname;
 	const scheme = url.protocol.replace(/:$/, '');
 	const wsScheme = scheme.replace('http', 'ws');
 
-	const dbDb = config.db.db ?? process.env.DATABASE_DB ?? '';
-	const dbUser = config.db.user ?? process.env.DATABASE_USER ?? '';
-	const dbPass = config.db.pass ?? process.env.DATABASE_PASSWORD ?? '';
+	const dbHost = parsedDatabaseUrl?.host ?? config.db.host;
+	const dbPort = parsedDatabaseUrl?.port ?? config.db.port;
+	const dbDb = parsedDatabaseUrl?.db ?? config.db.db ?? '';
+	const dbUser = parsedDatabaseUrl?.user ?? config.db.user ?? '';
+	const dbPass = parsedDatabaseUrl?.pass ?? config.db.pass ?? '';
 
 	const externalMediaProxy = config.mediaProxy ?
 		config.mediaProxy.endsWith('/') ? config.mediaProxy.substring(0, config.mediaProxy.length - 1) : config.mediaProxy
@@ -302,7 +306,7 @@ export function loadConfig(): Config {
 		apiUrl: `${scheme}://${host}/api`,
 		authUrl: `${scheme}://${host}/auth`,
 		driveUrl: `${scheme}://${host}/files`,
-		db: { ...config.db, db: dbDb, user: dbUser, pass: dbPass },
+		db: { ...config.db, host: dbHost, port: dbPort, db: dbDb, user: dbUser, pass: dbPass, extra: { ...config.db.extra, ssl: true } },
 		dbReplications: config.dbReplications,
 		dbSlaves: config.dbSlaves,
 		fulltextSearch: config.fulltextSearch,
@@ -355,6 +359,51 @@ function tryCreateUrl(url: string) {
 	} catch (_) {
 		throw new Error(`url="${url}" is not a valid URL.`);
 	}
+}
+
+function parseDatabaseUrl(databaseUrl: string) {
+	const url = tryCreateUrl(databaseUrl);
+
+	if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+		throw new Error(`DATABASE_URL protocol must be postgres:// or postgresql://, got "${url.protocol}"`);
+	}
+
+	const firstSlashes = databaseUrl.indexOf('//');
+	const preBase = databaseUrl.substring(firstSlashes + 2);
+	const secondSlash = preBase.indexOf('/');
+	const base = secondSlash !== -1 ? preBase.substring(0, secondSlash) : preBase;
+	let afterBase = secondSlash !== -1 ? preBase.substring(secondSlash + 1) : undefined;
+
+	if (afterBase && afterBase.indexOf('?') !== -1) {
+		afterBase = afterBase.substring(0, afterBase.indexOf('?'));
+	}
+
+	const lastAtSign = base.lastIndexOf('@');
+	const usernameAndPassword = lastAtSign !== -1 ? base.substring(0, lastAtSign) : '';
+
+	let username = usernameAndPassword;
+	let password = '';
+	const firstColon = usernameAndPassword.indexOf(':');
+
+	if (firstColon !== -1) {
+		username = usernameAndPassword.substring(0, firstColon);
+		password = usernameAndPassword.substring(firstColon + 1);
+	}
+
+	const host = url.hostname;
+	const port = url.port ? parseInt(url.port, 10) : undefined;
+
+	if (!host) {
+		throw new Error(`DATABASE_URL="${databaseUrl}" must include a hostname.`);
+	}
+
+	return {
+		host,
+		port,
+		db: afterBase ? decodeURIComponent(afterBase) : undefined,
+		user: decodeURIComponent(username),
+		pass: decodeURIComponent(password),
+	};
 }
 
 function convertRedisOptions(options: RedisOptionsSource, host: string): RedisOptions & RedisOptionsSource {
